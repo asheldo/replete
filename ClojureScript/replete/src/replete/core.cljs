@@ -12,7 +12,7 @@
             [cognitect.transit :as t]
             [clojure.string :as s]))
 
-(def DEBUG false)
+(def DEBUG true)
 
 (def cenv (env/default-compiler-env))
 
@@ -89,47 +89,52 @@
      (s/replace #"\n  " " "))))
 
 (defn ^:export read-eval-print [line]
-  (binding [ana/*cljs-ns* @current-ns
-            *ns* (create-ns @current-ns)
-            r/*data-readers* tags/*cljs-data-readers*]
-    (with-compiler-env cenv
-      (let [env (assoc (ana/empty-env) :context :expr
-                                       :ns {:name @current-ns}
-                                       :def-emits-var true)]
-        (try
-          (let [_ (when DEBUG (prn "line:" line))
-                form (repl-read-string line)]
-            (if (repl-special? form)
-              (case (first form)
-                in-ns (reset! current-ns (second (second form)))
-                doc (if (repl-specials (second form))
-                      (repl/print-doc (repl-special-doc (second form)))
-                      (let [var-ast (ana/analyze env `(var ~(second form)))
-                           var-js (with-out-str
-                                    (ensure
-                                      (c/emit var-ast)))
-                           var-ret (js/eval var-js)]
-                       (repl/print-doc (update (meta var-ret) :doc (if (user-interface-idiom-ipad?)
-                                                                     identity
-                                                                     reflow))))))
-              (let [_ (when DEBUG (prn "form:" form))
-                    ast (ana/analyze env form)
-                    _ (when DEBUG (prn "ast:" ast))
-                    js (with-out-str
-                         (ensure
-                           (c/emit ast)))
-                    _ (when DEBUG (prn "js:" js))]
-                (try (prn (let [ret (js/eval js)]
-                            (when-not
-                              (or ('#{*1 *2 *3 *e} form)
-                                (ns-form? form))
-                              (set! *3 *2)
-                              (set! *2 *1)
-                              (set! *1 ret))
-                            (reset! current-ns ana/*cljs-ns*)
-                            ret))
-                     (catch js/Error e
-                       (set! *e e)
-                       (print (.-message e) "\n" (first (s/split (.-stack e) #"eval code"))))))))
-          (catch js/Error e
-            (println (.-message e))))))))
+  (println "called with" line)
+
+  (try
+    (binding [ana/*cljs-ns* @current-ns
+              #_ *ns*  #_ (create-ns @current-ns)
+              r/*data-readers* tags/*cljs-data-readers*]
+      (with-compiler-env cenv
+        (let [env (assoc (ana/empty-env) :context :expr
+                                         :ns {:name @current-ns}
+                                         :def-emits-var true)]
+          (try
+            (let [_ (when DEBUG (prn "line:" line))
+                  form (repl-read-string line)]
+              (if (repl-special? form)
+                (case (first form)
+                  in-ns (reset! current-ns (second (second form)))
+                  doc (if (repl-specials (second form))
+                        (repl/print-doc (repl-special-doc (second form)))
+                        (let [var-ast (ana/analyze env `(var ~(second form)))
+                              var-js (with-out-str
+                                       (ensure
+                                         (c/emit var-ast)))
+                              var-ret (js/eval var-js)]
+                          (repl/print-doc (update (meta var-ret) :doc (if (user-interface-idiom-ipad?)
+                                                                        identity
+                                                                        reflow))))))
+                (let [_ (when DEBUG (prn "form:" form))
+                      ast (ana/analyze env form)
+                      _ (when DEBUG (prn "ast:" ast))
+                      js (with-out-str
+                           (ensure
+                             (c/emit ast)))
+                      _ (when DEBUG (prn "js:" js))]
+                  (try (prn (let [ret (js/eval js)]
+                              (when-not
+                                (or ('#{*1 *2 *3 *e} form)
+                                  (ns-form? form))
+                                (set! *3 *2)
+                                (set! *2 *1)
+                                (set! *1 ret))
+                              (reset! current-ns ana/*cljs-ns*)
+                              ret))
+                       (catch js/Error e
+                         (set! *e e)
+                         (print (.-message e) "\n" (first (s/split (.-stack e) #"eval code"))))))))
+            (catch js/Error e
+              (println (.-message e) (.-stack e)))))))
+    (catch js/Error e
+      (println (.-message e) (.-stack e)))))

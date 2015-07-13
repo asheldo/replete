@@ -3,7 +3,8 @@
             [cljs.closure :as closure]
             [cljs.env :as env]
             [clojure.edn :as edn]
-            [cognitect.transit :as transit])
+            [cognitect.transit :as transit]
+            [cljs.build.api])
   (:import [java.io FileOutputStream]))
 
 (defn compile1 [copts file]
@@ -56,5 +57,10 @@
     (.close out)))
 
 (println "Building")
-(build "out" "replete/core.cljs" nil)
+#_(build "out" "replete/core.cljs" nil)
+(cljs.build.api/build "src"
+  {:output-to "out/main.js"
+   :optimizations :simple})
+(System/exit 0)
 (println "Done building")
+
