@@ -3,3 +3,5 @@
 //
 
 #import "AppDelegate.h"
+#import "EDHInputAccessoryView.h"
+#import <FontAwesomeKit/FontAwesomeKit.h>

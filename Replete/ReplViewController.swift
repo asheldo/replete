@@ -7,62 +7,44 @@ let textViewMaxHeight: (portrait: CGFloat, landscape: CGFloat) = (portrait: 272,
 class ReplViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, UITextViewDelegate {
     
     let history: History
+    var textInputView: UITextView!
+    var textInputCell: UITableViewCell!
+    var nextHistoryCell: HistoryTableViewCell!
     var tableView: UITableView!
-    var toolBar: UIToolbar!
-    var textView: UITextView!
+
     var evalButton: UIButton!
     var rotating = false
     var textFieldHeightLayoutConstraint: NSLayoutConstraint!
     var currentKeyboardHeight: CGFloat!
     var initialized = false;
     
+    
     override var inputAccessoryView: UIView! {
         get {
-            if toolBar == nil {
-                toolBar = UIToolbar(frame: CGRectMake(0, 0, 0, toolBarMinHeight-0.5))
-                
-                textView = InputTextView(frame: CGRectZero)
-                textView.backgroundColor = UIColor(white: 250/255, alpha: 1)
-                textView.font = UIFont(name: "Menlo", size: messageFontSize)
-                textView.layer.borderColor = UIColor(red: 200/255, green: 200/255, blue: 205/255, alpha:1).CGColor
-                textView.layer.borderWidth = 0.5
-                textView.layer.cornerRadius = 5
-                textView.scrollsToTop = false
-                textView.textContainerInset = UIEdgeInsetsMake(6, 3, 6, 3)
-                textView.autocorrectionType = UITextAutocorrectionType.No;
-                textView.autocapitalizationType = UITextAutocapitalizationType.None;
-                textView.delegate = self
-                toolBar.addSubview(textView)
-                
-                evalButton = UIButton.buttonWithType(.System) as! UIButton
-                evalButton.enabled = false
-                evalButton.titleLabel?.font = UIFont.boldSystemFontOfSize(17)
-                evalButton.setTitle("Eval", forState: .Normal)
-                evalButton.setTitleColor(UIColor(red: 142/255, green: 142/255, blue: 147/255, alpha: 1), forState: .Disabled)
-                evalButton.setTitleColor(UIColor(red: 1/255, green: 122/255, blue: 255/255, alpha: 1), forState: .Normal)
-                evalButton.contentEdgeInsets = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 8)
-                evalButton.addTarget(self, action: "sendAction", forControlEvents: UIControlEvents.TouchUpInside)
-                toolBar.addSubview(evalButton)
-                
-                toolBar.setTranslatesAutoresizingMaskIntoConstraints(false)
-                textView.setTranslatesAutoresizingMaskIntoConstraints(false)
-                evalButton.setTranslatesAutoresizingMaskIntoConstraints(false)
-
-                textFieldHeightLayoutConstraint = NSLayoutConstraint(item: textView, attribute: .Height, relatedBy: .Equal, toItem: nil, attribute: .NotAnAttribute, multiplier: 1, constant: 1)
-                toolBar.addConstraint(textFieldHeightLayoutConstraint)
-
-                toolBar.addConstraint(NSLayoutConstraint(item: textView, attribute: .Left, relatedBy: .Equal, toItem: toolBar, attribute: .Left, multiplier: 1, constant: 8))
-                toolBar.addConstraint(NSLayoutConstraint(item: textView, attribute: .Top, relatedBy: .Equal, toItem: toolBar, attribute: .Top, multiplier: 1, constant: 7.5))
-                toolBar.addConstraint(NSLayoutConstraint(item: textView, attribute: .Right, relatedBy: .Equal, toItem: evalButton, attribute: .Left, multiplier: 1, constant: -2))
-                toolBar.addConstraint(NSLayoutConstraint(item: textView, attribute: .Bottom, relatedBy: .Equal, toItem: toolBar, attribute: .Bottom, multiplier: 1, constant: -8))
-
-                toolBar.addConstraint(NSLayoutConstraint(item: evalButton, attribute: .Right, relatedBy: .Equal, toItem: toolBar, attribute: .Right, multiplier: 1, constant: 0))
-                toolBar.addConstraint(NSLayoutConstraint(item: evalButton, attribute: .Bottom, relatedBy: .Equal, toItem: toolBar, attribute: .Bottom, multiplier: 1, constant: -4.5))
-                
-            }
-            return toolBar
+            let edh = EDHInputAccessoryView(textView: textInputView)
+            return edh
         }
     }
+    
+    func createTextView() -> UITextView {
+        
+            let textView = InputTextView(frame: CGRectMake(0, 0, view.bounds.width, toolBarMinHeight-0.5)) // CGRectZero)
+            textView.backgroundColor = UIColor(white: 250/255, alpha: 1)
+            textView.font = UIFont(name: "Menlo", size: messageFontSize)
+            textView.backgroundColor = UIColor(white: 250/255, alpha: 1)
+            textView.font = UIFont(name: "Menlo", size: messageFontSize)
+            textView.layer.borderColor = UIColor(red: 200/255, green: 200/255, blue: 205/255, alpha:1).CGColor
+            textView.layer.borderWidth = 0.5
+            textView.layer.cornerRadius = 5
+            textView.autocorrectionType = UITextAutocorrectionType.No;
+            textView.autocapitalizationType = UITextAutocapitalizationType.None;
+            textView.delegate = self
+            textView.keyboardType = .NumbersAndPunctuation
+
+            textView.text = "(def hello \"Hello World\")"
+            return textView
+        }
+//    }
     
     required init(coder aDecoder: NSCoder) {
         self.history = History()
@@ -86,7 +68,9 @@ class ReplViewController: UIViewController, UITableViewDataSource, UITableViewDe
         let whiteColor = UIColor.whiteColor()
         view.backgroundColor = whiteColor
         
+        // view.bounds.height-80
         tableView = UITableView(frame: CGRect(x: 0, y: 20, width: view.bounds.width, height: view.bounds.height-20), style: .Plain)
+        
         tableView.autoresizingMask = .FlexibleWidth | .FlexibleHeight
         tableView.backgroundColor = whiteColor
         let edgeInsets = UIEdgeInsets(top: 0, left: 0, bottom: toolBarMinHeight, right: 0)
@@ -98,6 +82,18 @@ class ReplViewController: UIViewController, UITableViewDataSource, UITableViewDe
         tableView.rowHeight = UITableViewAutomaticDimension
         tableView.separatorStyle = .None
         view.addSubview(tableView)
+        
+        // createToolBar()
+        textInputView = createTextView()
+        let lastSection = 0
+        tableView.beginUpdates()
+        tableView.insertSections(NSIndexSet(index: lastSection), withRowAnimation: .Automatic)
+        tableView.insertRowsAtIndexPaths([
+            NSIndexPath(forRow: 0, inSection: 0)
+            ], withRowAnimation: .Automatic)
+        tableView.endUpdates()
+        
+        tableViewScrollToBottomAnimated(false)
         
         let notificationCenter = NSNotificationCenter.defaultCenter()
         notificationCenter.addObserver(self, selector: "keyboardWillShow:", name: UIKeyboardWillShowNotification, object: nil)
@@ -121,7 +117,8 @@ class ReplViewController: UIViewController, UITableViewDataSource, UITableViewDe
                 // mark ready
                 NSLog("Ready");
                 self.initialized = true;
-                self.evalButton.enabled = self.textView.hasText()
+                // TODO andy
+                // self.evalButton.enabled = self.textView.hasText()
             }
         }
         
@@ -148,37 +145,54 @@ class ReplViewController: UIViewController, UITableViewDataSource, UITableViewDe
         if true {
             //textView.text = chat.draft
             //chat.draft = ""
-            textViewDidChange(textView)
-            textView.becomeFirstResponder()
+            textViewDidChange(textInputView)
+            textInputView.becomeFirstResponder()
         }
     }
     
     func numberOfSectionsInTableView(tableView: UITableView) -> Int {
-        return history.loadedMessages.count
+        return history.loadedMessages.count + 1
     }
     
     func tableView(tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        if section == history.loadedMessages.count {
+            return 1 // TODO grow...
+        }
         return history.loadedMessages[section].count
     }
     
     func tableView(tableView: UITableView, cellForRowAtIndexPath indexPath: NSIndexPath) -> UITableViewCell {
 
+        let section = indexPath.section
+        let row = indexPath.row
+        let isText = section == history.loadedMessages.count
+        let isFirst = textInputCell == nil // && section == 0
+        if isFirst {
+            textInputCell = UITableViewCell(style: .Default, reuseIdentifier: "textInputCell*")
+            textInputCell.addSubview(textInputView)
+            // TODO
+            
+            return textInputCell
+        }
+        else if isText {
+            return textInputCell
+        }
+        else { // if nextHistoryCell == nil {
             let cellIdentifier = NSStringFromClass(HistoryTableViewCell)
-            var cell = tableView.dequeueReusableCellWithIdentifier(cellIdentifier) as! HistoryTableViewCell!
-            if cell == nil {
-                cell = HistoryTableViewCell(style: .Default, reuseIdentifier: cellIdentifier)
-                
+            nextHistoryCell = tableView.dequeueReusableCellWithIdentifier(cellIdentifier) as! HistoryTableViewCell!
+            if nextHistoryCell == nil {
+                nextHistoryCell = HistoryTableViewCell(style: .Default, reuseIdentifier: cellIdentifier)
                 // Add gesture recognizers #CopyMessage
                 let action: Selector = "messageShowMenuAction:"
                 let doubleTapGestureRecognizer = UITapGestureRecognizer(target: self, action: action)
                 doubleTapGestureRecognizer.numberOfTapsRequired = 2
-                cell.messageLabel.addGestureRecognizer(doubleTapGestureRecognizer)
-                cell.messageLabel.addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: action))
+                nextHistoryCell.messageLabel.addGestureRecognizer(doubleTapGestureRecognizer)
+                nextHistoryCell.messageLabel.addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: action))
             }
-            let message = history.loadedMessages[indexPath.section][indexPath.row]
-            cell.configureWithMessage(message)
-            return cell
-        
+            let message = history.loadedMessages[section][row]
+            nextHistoryCell.configureWithMessage(message)
+            return nextHistoryCell
+        }
     }
     
     // Reserve row selection #CopyMessage
@@ -204,8 +218,10 @@ class ReplViewController: UIViewController, UITableViewDataSource, UITableViewDe
     }
     
     func textViewDidChange(textView: UITextView) {
+        self.tableView.beginUpdates()
         updateTextViewHeight()
-        evalButton.enabled = self.initialized && textView.hasText()
+        self.tableView.endUpdates()
+        // evalButton.enabled = self.initialized && textView.hasText()
     }
     
     func keyboardWillShow(notification: NSNotification) {
@@ -256,34 +272,44 @@ class ReplViewController: UIViewController, UITableViewDataSource, UITableViewDe
         }
     }
     
-    func updateTextViewHeight() {
-        let oldHeight = textView.frame.height
-        let newText = textView.text
-        let newSize = (newText as NSString).boundingRectWithSize(CGSize(width: textView.frame.width - textView.textContainerInset.right - textView.textContainerInset.left - 10, height: CGFloat.max), options: .UsesLineFragmentOrigin, attributes: [NSFontAttributeName: textView.font], context: nil)
-        let heightChange = newSize.height + textView.textContainerInset.top + textView.textContainerInset.bottom - oldHeight
-        
+    func updateTextViewHeight() -> CGFloat {
+        if false {
+            return CGFloat(0)
+        }
+        let minHeight = CGFloat(44)
         let maxHeight = self.view.frame.height
             - self.topLayoutGuide.length
             - currentKeyboardHeight
-            + toolBar.frame.height
-            - textView.textContainerInset.top
-            - textView.textContainerInset.bottom
+            + textInputView.frame.height
+            - textInputView.textContainerInset.top
+            - textInputView.textContainerInset.bottom
             - 20
-        
-        if !(textFieldHeightLayoutConstraint.constant + heightChange > maxHeight){
-            //ceil because of small irregularities in heightChange
-            self.textFieldHeightLayoutConstraint.constant = ceil(heightChange + oldHeight)
-            
-            //In order to ensure correct placement of text inside the textfield:
-            self.textView.setContentOffset(CGPoint.zeroPoint, animated: false)
-            //To ensure update of placement happens immediately
-            self.textView.layoutIfNeeded()
-            
+        /*
+        if textFieldHeightLayoutConstraint != nil {
+            if !(textFieldHeightLayoutConstraint.constant + heightChange > maxHeight){
+                //ceil because of small irregularities in heightChange
+                self.textFieldHeightLayoutConstraint.constant = ceil(heightChange + oldHeight)
+                
+                //In order to ensure correct placement of text inside the textfield:
+                self.textInputView.setContentOffset(CGPoint.zeroPoint, animated: false)
+                //To ensure update of placement happens immediately
+                self.textInputView.layoutIfNeeded()
+                
+            }
+            else{
+                self.textFieldHeightLayoutConstraint.constant = maxHeight
+            }
+        } */
+        let height = ceil(textInputView.contentSize.height) // ceil to avoid decimal
+        let minHeightPlus5 = minHeight + 5
+        if height < minHeightPlus5 {
+            // min cap, + 5 to avoid tiny height difference at min height
+            return minHeight
         }
-        else{
-            self.textFieldHeightLayoutConstraint.constant = maxHeight
+        else if height - maxHeight > 0 { // max cap
+            return maxHeight
         }
-        
+        return height
     }
     
     func loadMessage(incoming: Bool, text: String) {
@@ -293,7 +319,7 @@ class ReplViewController: UIViewController, UITableViewDataSource, UITableViewDe
             
             history.loadedMessages.append([Message(incoming: incoming, text: text)])
             
-            let lastSection = tableView.numberOfSections()
+            let lastSection = tableView.numberOfSections() - 1
             tableView.beginUpdates()
             tableView.insertSections(NSIndexSet(index: lastSection), withRowAnimation: .Automatic)
             tableView.insertRowsAtIndexPaths([
@@ -310,13 +336,13 @@ class ReplViewController: UIViewController, UITableViewDataSource, UITableViewDe
         //textView.resignFirstResponder()
         //textView.becomeFirstResponder()
         
-        let textToEvaluate = textView.text
+        let textToEvaluate = textInputView.text
         
         loadMessage(false, text: textToEvaluate)
         
-        textView.text = nil
+        textInputView.text = nil
         updateTextViewHeight()
-        evalButton.enabled = false
+        // evalButton.enabled = false
         
         // Dispatch to be evaluated
         
