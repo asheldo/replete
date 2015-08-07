@@ -1,7 +1,8 @@
 (ns replete.core
   (:require-macros [cljs.env.macros :refer [ensure with-compiler-env]]
                    [cljs.analyzer.macros :refer [no-warn]])
-  (:require [cljs.pprint :refer [pprint]]
+  (:require [cljs.js :as cljs]
+            [cljs.pprint :refer [pprint]]
             [cljs.tagged-literals :as tags]
             [cljs.tools.reader :as r]
             [cljs.tools.reader.reader-types :refer [string-push-back-reader]]
@@ -9,17 +10,14 @@
             [cljs.compiler :as c]
             [cljs.env :as env]
             [cljs.repl :as repl]
-            [clojure.string :as s]))
+            [clojure.string :as s]
+            [cljs.stacktrace :as st]
+            [cljs.source-map :as sm]
+            [tailrecursion.cljson :refer [cljson->clj]]))
 
 (def DEBUG false)
 
-(def cenv 
-  ;manually require as first stage comilation it doesn't exist
-  (let [ _ (js/eval "goog.require('cljs.cache')")
-        env (env/default-compiler-env)] 
-    (swap! env assoc-in [::ana/namespaces 'cljs.core] js/cljs.cache.core)
-    (swap! env assoc-in [::ana/namespaces 'cljs.core$macros] js/cljs.cache.core$macros)
-    env))
+(defonce st (cljs/empty-state))
 
 (defn ^:export setup-cljs-user []
   (js/eval "goog.provide('cljs.user')")
@@ -43,7 +41,7 @@
 
 (defn ^:export is-readable? [line]
   (binding [r/*data-readers* tags/*cljs-data-readers*]
-    (with-compiler-env cenv
+    (with-compiler-env st
       (try
         (repl-read-string line)
         true
@@ -55,16 +53,21 @@
 (defn ns-form? [form]
   (and (seq? form) (= 'ns (first form))))
 
-(def repl-specials '#{in-ns doc})
+(def repl-specials '#{in-ns require require-macros doc})
 
 (defn repl-special? [form]
   (and (seq? form) (repl-specials (first form))))
 
 (def repl-special-doc-map
-  '{in-ns {:arglists ([name])
-           :doc "Sets *cljs-ns* to the namespace named by the symbol, creating it if needed."}
-    doc {:arglists ([name])
-         :doc "Prints documentation for a var or special form given its name"}})
+  '{in-ns          {:arglists ([name])
+                    :doc      "Sets *cljs-ns* to the namespace named by the symbol, creating it if needed."}
+    require        {:arglists ([& args])
+                    :doc      "Loads libs, skipping any that are already loaded."}
+    require-macros {:arglists ([& args])
+                    :doc      "Similar to the require REPL special function but
+                    only for macros."}
+    doc            {:arglists ([name])
+                    :doc      "Prints documentation for a var or special form given its name"}})
 
 (defn- repl-special-doc [name-symbol]
   (assoc (repl-special-doc-map name-symbol)
@@ -74,8 +77,8 @@
 (defn reflow [text]
   (and text
     (-> text
-     (s/replace #" \n  " "")
-     (s/replace #"\n  " " "))))
+      (s/replace #" \n  " "")
+      (s/replace #"\n  " " "))))
 
 ;; Copied from cljs.analyzer.api (which hasn't yet been converted to cljc)
 (defn resolve
@@ -89,55 +92,140 @@
     (catch :default _
       (ana/resolve-macro-var env sym))))
 
-(defn read-eval-print-form [form env]
-  (let [_ (when DEBUG (prn "form:" form))]
-    (if (repl-special? form)
-      (case (first form)
-        in-ns (reset! current-ns (second (second form)))
-        doc (if (repl-specials (second form))
-              (repl/print-doc (repl-special-doc (second form)))
-              (repl/print-doc
-               (let [sym (second form)
-                     var (resolve env sym)]
-                 (update (:meta var)
+(defn extension->lang [extension]
+  (if (= ".js" extension)
+    :js
+    :clj))
+
+(defn load-and-callback! [path extension cb]
+  (when-let [source (js/REPLETE_LOAD (str path extension))]
+    (cb {:lang   (extension->lang extension)
+         :source source})
+    :loaded))
+
+(defn load [{:keys [name macros path] :as full} cb]
+  #_(prn full)
+  (loop [extensions (if macros
+                      [".clj" ".cljc"]
+                      [".cljs" ".cljc" ".js"])]
+    (if extensions
+      (when-not (load-and-callback! path (first extensions) cb)
+        (recur (next extensions)))
+      (cb nil))))
+
+(defn require [macros-ns? sym reload]
+  (cljs.js/require
+    {:*compiler*     st
+     :*data-readers* tags/*cljs-data-readers*
+     :*load-fn*      load
+     :*eval-fn*      cljs/js-eval}
+    sym
+    reload
+    {:macros-ns macros-ns?
+     :verbose   (:verbose @app-env)}
+    (fn [res]
+      #_(println "require result:" res))))
+
+(defn require-destructure [macros-ns? args]
+  (let [[[_ sym] reload] args]
+    (require macros-ns? sym reload)))
+
+(defn load-core-source-maps! []
+  (when-not (get (:source-maps @st) 'cljs.core)
+    (swap! st update-in [:source-maps] merge {'cljs.core
+                                              (sm/decode
+                                                (cljson->clj
+                                                  (js/REPLETE_LOAD "cljs/core.js.map")))})))
+
+(defn unmunge-core-fn [munged-name]
+  (s/replace munged-name #"^cljs\$core\$" "cljs.core/"))
+
+(defn mapped-stacktrace-str
+  "Given a vector representing the canonicalized JavaScript stacktrace and a map
+  of library names to decoded source maps, print the ClojureScript stacktrace .
+  See mapped-stacktrace."
+  ([stacktrace sms]
+   (mapped-stacktrace-str stacktrace sms nil))
+  ([stacktrace sms opts]
+   (with-out-str
+     (doseq [{:keys [function file line column]}
+             (st/mapped-stacktrace stacktrace sms opts)]
+       (println
+         (str (when function (str (unmunge-core-fn function) " "))
+           "(" file (when line (str ":" line))
+           (when column (str ":" column)) ")"))))))
+
+(defn print-error [error]
+  (let [cause (.-cause error)]
+    (println (.-message cause))
+    (load-core-source-maps!)
+    (let [canonical-stacktrace (st/parse-stacktrace
+                                 {}
+                                 (.-stack cause)
+                                 {:ua-product :safari}
+                                 {:output-dir "file://(/goog/..)?"})]
+      (println
+        (mapped-stacktrace-str
+          canonical-stacktrace
+          (or (:source-maps @st) {})
+          nil)))))
+
+(defn ^:export read-eval-print
+  ([source]
+   (read-eval-print source true))
+  ([source expression?]
+   (binding [ana/*cljs-ns* @current-ns
+             *ns* (create-ns @current-ns)
+             r/*data-readers* tags/*cljs-data-readers*]
+     (let [expression-form (and expression? (repl-read-string source))]
+       (if (repl-special? expression-form)
+         (let [env (assoc (ana/empty-env) :context :expr
+                                          :ns {:name @current-ns})]
+           (case (first expression-form)
+             in-ns (reset! current-ns (second (second expression-form)))
+             require (require-destructure false (rest expression-form))
+             require-macros (require-destructure true (rest expression-form))
+             doc (if (repl-specials (second expression-form))
+                   (repl/print-doc (repl-special-doc (second expression-form)))
+                   (repl/print-doc
+                     (let [sym (second expression-form)
+                           var (with-compiler-env st
+                                 (resolve env sym))]
+                       (update (:meta var)
                          :doc (if (user-interface-idiom-ipad?)
                                 identity
                                 reflow))))))
-      (let [_ (when DEBUG (prn "form:" form))
-            ast (ana/analyze env form)
-            _ (when DEBUG (prn "ast:" ast))
-            js (with-out-str
-                 (ensure
-                  (c/emit ast)))
-            _ (when DEBUG (prn "js:" js))]
-        (try (prn (let [ret (js/eval js)]
-                    (when-not
-                        (or ('#{*1 *2 *3 *e} form)
-                            (ns-form? form))
-                      (set! *3 *2)
-                      (set! *2 *1)
-                      (set! *1 ret))
-                    (reset! current-ns ana/*cljs-ns*)
-                    ret))
-             (catch js/Error e
-               (set! *e e)
-               (print (.-message e) "\n" (first (s/split (.-stack e) #"eval code")))))))))
-
-(defn ^:export read-eval-print [lines]
-  (binding [ana/*cljs-ns* @current-ns
-            *ns* (create-ns @current-ns)
-            r/*data-readers* tags/*cljs-data-readers*]
-    (with-compiler-env cenv
-      (let [env (assoc (ana/empty-env) :context :expr
-                                       :ns {:name @current-ns}
-                                       :def-emits-var true)]
-        (try
-          (let [infile (string-push-back-reader lines)
-                eof (js-obj)]
-            (loop []
-              (let [form (r/read {:eof eof :read-cond :allow :features #{:cljs}} infile)]
-                (when-not (identical? eof form)
-                  (read-eval-print-form form env)
-                  (recur)))))
-          (catch js/Error e
-            (println (.-message e))))))))
+           (prn nil))
+         (try
+           (cljs/eval-str
+             st
+             source
+             (if expression? source "File")
+             (merge
+               {:ns         @current-ns
+                :load       load
+                :eval       cljs/js-eval
+                :source-map false
+                :verbose    (:verbose @app-env)}
+               (when expression?
+                 {:context       :expr
+                  :def-emits-var true}))
+             (fn [{:keys [ns value error] :as ret}]
+               (if expression?
+                 (if-not error
+                   (do
+                     (prn value)
+                     (when-not
+                       (or ('#{*1 *2 *3 *e} expression-form)
+                         (ns-form? expression-form))
+                       (set! *3 *2)
+                       (set! *2 *1)
+                       (set! *1 value))
+                     (reset! current-ns ns)
+                     nil)
+                   (do
+                     (set! *e error))))
+               (when error
+                 (print-error error))))
+           (catch :default e
+             (print-error e))))))))
