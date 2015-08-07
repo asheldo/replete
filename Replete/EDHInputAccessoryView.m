@@ -7,7 +7,7 @@
 //
 
 #import "EDHInputAccessoryView.h"
-
+#import <AudioToolbox/AudioToolbox.h>
 #import <FontAwesomeKit/FontAwesomeKit.h>
 
 static const CGFloat kViewHeight = 44.0f;
@@ -62,7 +62,6 @@ static const CGFloat kIconSize = 20.0f;
         i++;
         
         x = CGRectGetMaxX(button.frame);
-        /
         if (i % numberOfButtonsInPage != 0) {
             x += kBorderWidth;
         }
@@ -74,11 +73,21 @@ static const CGFloat kIconSize = 20.0f;
 - (void)initButtons {
     NSMutableArray *buttons = @[].mutableCopy;
     
+    FAKIcon *evalIcon = [FAKFontAwesome iconWithCode: @"eval" size:kIconSize];
+    EDHInputAccessoryButton *evalButton = [EDHInputAccessoryButton buttonWithIcon:evalIcon tapHandler:^(EDHInputAccessoryButton *button) {
+        NSRange range = self.textView.selectedRange;
+        range.location -= 0;
+        self.textView.selectedRange = range;
+        AudioServicesPlaySystemSound(1104);
+    }];
+    [buttons addObject:evalButton];
+    
     FAKIcon *leftIcon = [FAKFontAwesome caretLeftIconWithSize:kIconSize];
     EDHInputAccessoryButton *leftButton = [EDHInputAccessoryButton buttonWithIcon:leftIcon tapHandler:^(EDHInputAccessoryButton *button) {
         NSRange range = self.textView.selectedRange;
         range.location -= 1;
         self.textView.selectedRange = range;
+        AudioServicesPlaySystemSound(1104);
     }];
     [buttons addObject:leftButton];
 
@@ -87,26 +96,30 @@ static const CGFloat kIconSize = 20.0f;
         NSRange range = self.textView.selectedRange;
         range.location += 1;
         self.textView.selectedRange = range;
+        AudioServicesPlaySystemSound(1104);
     }];
     [buttons addObject:rightButton];
 
     FAKIcon *undoIcon = [FAKFontAwesome undoIconWithSize:kIconSize];
     EDHInputAccessoryButton *undoButton = [EDHInputAccessoryButton buttonWithIcon:undoIcon tapHandler:^(EDHInputAccessoryButton *button) {
         [self.textView.undoManager undo];
+        AudioServicesPlaySystemSound(1104);
     }];
     [buttons addObject:undoButton];
     
     FAKIcon *repeatIcon = [FAKFontAwesome repeatIconWithSize:kIconSize];
     EDHInputAccessoryButton *redoButton = [EDHInputAccessoryButton buttonWithIcon:repeatIcon tapHandler:^(EDHInputAccessoryButton *button) {
         [self.textView.undoManager redo];
+        AudioServicesPlaySystemSound(1104);
     }];
     [buttons addObject:redoButton];
     
-    
-    NSString *strings = @"!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
+    NSString *strings = @"()[]{}'`@!?:\"-#$%&*+.,~/:<=>\\^_|";
+    // NSString *strings = @"!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
     [strings enumerateSubstringsInRange:NSMakeRange(0, strings.length) options:NSStringEnumerationByComposedCharacterSequences usingBlock:^(NSString *substring, NSRange substringRange, NSRange enclosingRange, BOOL *stop) {
         EDHInputAccessoryButton *button = [EDHInputAccessoryButton buttonWithString:substring];
         [buttons addObject:button];
+        AudioServicesPlaySystemSound(1104);
     }];
 
     self.buttons = buttons;
