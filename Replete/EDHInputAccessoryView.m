@@ -119,7 +119,6 @@ static const CGFloat kIconSize = 20.0f;
     [strings enumerateSubstringsInRange:NSMakeRange(0, strings.length) options:NSStringEnumerationByComposedCharacterSequences usingBlock:^(NSString *substring, NSRange substringRange, NSRange enclosingRange, BOOL *stop) {
         EDHInputAccessoryButton *button = [EDHInputAccessoryButton buttonWithString:substring];
         [buttons addObject:button];
-        AudioServicesPlaySystemSound(1104);
     }];
 
     self.buttons = buttons;

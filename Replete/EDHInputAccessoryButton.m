@@ -11,6 +11,7 @@
 #import "EDHInputAccessoryView.h"
 #import "EDHUtility.h"
 
+#import <AudioToolbox/AudioToolbox.h>
 #import <FontAwesomeKit/FontAwesomeKit.h>
 
 @implementation EDHInputAccessoryButton
@@ -53,6 +54,7 @@
         self.tapHandler(self);
     } else if (self.string) {
         [self.inputAccessoryView.textView insertText:self.string];
+        AudioServicesPlaySystemSound(1104);
     }
 }
 
